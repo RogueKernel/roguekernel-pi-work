@@ -1,0 +1,27 @@
+{
+  "name": "roguekernel-pi-work",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "author": {
+    "name": "RogueKernel",
+    "url": "https://github.com/RogueKernel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RogueKernel/roguekernel-pi-work.git"
+  },
+  "homepage": "https://github.com/RogueKernel/roguekernel-pi-work",
+  "bugs": {
+    "url": "https://github.com/RogueKernel/roguekernel-pi-work/issues"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "npm run check --workspaces",
+    "test": "npm test --workspaces",
+    "pack:dry": "npm pack --workspaces --dry-run --json",
+    "setup:git": "git config --local user.name \"Rogue Kernel\" && git config --local user.email \"i_am@roguekernel.com\""
+  }
+}

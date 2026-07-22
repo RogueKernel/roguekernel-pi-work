@@ -1,0 +1,74 @@
+{
+  "name": "pi-orca-subagents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only live Orca viewers for pi-subagents children",
+  "keywords": [
+    "pi-package",
+    "pi-subagents",
+    "orca"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "RogueKernel",
+    "url": "https://github.com/RogueKernel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RogueKernel/roguekernel-pi-work.git",
+    "directory": "packages/pi-orca-subagents"
+  },
+  "homepage": "https://github.com/RogueKernel/roguekernel-pi-work/tree/main/packages/pi-orca-subagents",
+  "bugs": {
+    "url": "https://github.com/RogueKernel/roguekernel-pi-work/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "bin/orca-pi-wrapper",
+    "bin/relay-stream.mjs",
+    "bin/render-pi-jsonl.mjs",
+    "bin/subagent-title.mjs",
+    "bin/write-viewer-manifest.mjs",
+    "docs/*.md",
+    "pi-extension/orca-adapter.ts",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "lint": "oxlint pi-extension test",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "test:integration": "node --test test/integration/*.test.ts",
+    "test:shell": "bash -n bin/orca-pi-wrapper && node --check bin/relay-stream.mjs && node --check bin/render-pi-jsonl.mjs && node --check bin/subagent-title.mjs && node --check bin/write-viewer-manifest.mjs",
+    "check": "npm run typecheck && npm test && npm run test:shell && npm run lint"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.81.0 <0.82.0",
+    "pi-subagents": ">=0.34.0 <1",
+    "typebox": "1.1.38"
+  },
+  "peerDependenciesMeta": {
+    "pi-subagents": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./pi-extension/orca-adapter.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.81.0",
+    "oxlint": "^1.73.0",
+    "typebox": "1.1.38",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.81.1"
+  }
+}

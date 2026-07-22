@@ -1,0 +1,449 @@
+#!/usr/bin/env bash
+set -u
+
+orca_command="${ORCA_CLI_COMMAND:-orca}"
+real_pi="${PI_ORCA_REAL_PI_BINARY:-}"
+renderer="$(cd "$(dirname "$0")" && pwd)/render-pi-jsonl.mjs"
+title_renderer="$(cd "$(dirname "$0")" && pwd)/subagent-title.mjs"
+stream_relay="$(cd "$(dirname "$0")" && pwd)/relay-stream.mjs"
+manifest_writer="$(cd "$(dirname "$0")" && pwd)/write-viewer-manifest.mjs"
+log_dir=""
+temporary_parent=""
+terminal_handle=""
+terminal_created_handle=""
+terminal_pty_id=""
+terminal_tab_id=""
+terminal_leaf_id=""
+terminal_worktree_id=""
+terminal_pane_runtime_id=""
+parent_handle=""
+parent_pty_id=""
+parent_tab_id=""
+parent_leaf_id=""
+close_whole_tab=true
+layout_state_dir=""
+nonfocus_split_flag=""
+
+fail() {
+  printf 'pi-orca-subagents: %s\n' "$1" >&2
+  exit "${2:-1}"
+}
+
+is_safe_log_dir() {
+  local candidate="$1"
+  local expected_parent="$2"
+  local basename candidate_parent resolved_parent resolved_candidate
+
+  [[ -n "$expected_parent" && "$expected_parent" != "/" ]] || return 1
+  resolved_parent="$(cd -- "$expected_parent" 2>/dev/null && pwd -P)" || return 1
+  [[ "$resolved_parent" == "$expected_parent" ]] || return 1
+  [[ -n "$candidate" && "$candidate" != "/" && "$candidate" != "$expected_parent" ]] || return 1
+  basename="${candidate##*/}"
+  candidate_parent="${candidate%/*}"
+  [[ "$basename" =~ ^pi-orca-subagent\.[[:alnum:]]{6}$ ]] || return 1
+  [[ "$candidate_parent" == "$expected_parent" ]] || return 1
+  [[ "$candidate" == "$expected_parent/$basename" ]] || return 1
+
+  if [[ -e "$candidate" || -L "$candidate" ]]; then
+    [[ -d "$candidate" && ! -L "$candidate" ]] || return 1
+    resolved_candidate="$(cd -- "$candidate" 2>/dev/null && pwd -P)" || return 1
+    [[ "$resolved_candidate" == "$candidate" ]] || return 1
+  fi
+}
+
+safe_remove_log_dir() {
+  is_safe_log_dir "$1" "$2" || return 1
+  rm -rf -- "$1"
+}
+
+close_terminal_handle() {
+  local handle="$1"
+  if [[ "$close_whole_tab" == true ]]; then
+    PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal close --terminal "$handle" --tab --json >/dev/null 2>&1
+  else
+    PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal close --terminal "$handle" --json >/dev/null 2>&1
+  fi
+}
+
+close_visibility() {
+  local current_handle lookup_status wait_status
+  if [[ -z "$terminal_handle" ]]; then return 0; fi
+
+  current_handle="$terminal_handle"
+  if [[ -n "$terminal_pty_id" && -n "$terminal_worktree_id" ]]; then
+    current_handle="$(lookup_terminal_handle "$terminal_pty_id" "$terminal_worktree_id")"
+    lookup_status="$?"
+    if [[ "$lookup_status" == 1 ]]; then return 0; fi
+    if [[ "$lookup_status" == 2 ]]; then current_handle="$terminal_handle"; fi
+  fi
+
+  if close_terminal_handle "$current_handle"; then
+    wait_for_terminal_absence
+    wait_status="$?"
+    if [[ "$wait_status" != 1 ]]; then return 0; fi
+  fi
+
+  if [[ -n "$terminal_pty_id" && -n "$terminal_worktree_id" ]]; then
+    current_handle="$(lookup_terminal_handle "$terminal_pty_id" "$terminal_worktree_id")"
+    lookup_status="$?"
+    if [[ "$lookup_status" == 1 ]]; then return 0; fi
+    if [[ "$lookup_status" == 0 ]] && close_terminal_handle "$current_handle"; then
+      wait_for_terminal_absence
+      wait_status="$?"
+      [[ "$wait_status" != 1 ]]
+      return
+    fi
+  fi
+  return 1
+}
+
+cleanup_visibility() {
+  close_visibility || true
+  if [[ -n "$log_dir" ]]; then
+    safe_remove_log_dir "$log_dir" "$temporary_parent" || true
+  fi
+}
+
+pass_through() {
+  cleanup_visibility
+  exec "$real_pi" "$@"
+}
+
+run_orca() {
+  node - "$orca_command" "$@" <<'NODE'
+const { spawnSync } = require("node:child_process");
+const [command, ...args] = process.argv.slice(2);
+const configured = Number(process.env.PI_ORCA_COMMAND_TIMEOUT_MS ?? 1500);
+const timeout = Number.isFinite(configured) && configured > 0 ? configured : 1500;
+const result = spawnSync(command, args, {
+  encoding: "utf8",
+  timeout,
+  killSignal: "SIGKILL",
+});
+if (result.stdout) process.stdout.write(result.stdout);
+process.exit(result.status ?? 124);
+NODE
+}
+
+json_field() {
+  node -e '
+    const fs = require("node:fs");
+    const path = process.argv[1].split(".");
+    let value = JSON.parse(fs.readFileSync(0, "utf8"));
+    if (value && typeof value === "object" && "result" in value) value = value.result;
+    for (const key of path) value = value?.[key];
+    if ((typeof value !== "string" && typeof value !== "number") || String(value).length === 0) process.exit(1);
+    process.stdout.write(String(value));
+  ' "$1"
+}
+
+lookup_terminal_handle() {
+  local pty_id="$1"
+  local target_worktree_id="$2"
+  local terminals_json resolved_handle
+  terminals_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal list --worktree "id:$target_worktree_id" --json 2>/dev/null)" || return 2
+  resolved_handle="$(printf '%s' "$terminals_json" | node -e '
+    const fs = require("node:fs");
+    const ptyId = process.argv[1];
+    const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+    const result = payload?.result ?? payload;
+    const terminal = Array.isArray(result?.terminals)
+      ? result.terminals.find((candidate) => candidate?.ptyId === ptyId)
+      : undefined;
+    if (typeof terminal?.handle !== "string" || !terminal.handle) process.exit(1);
+    process.stdout.write(terminal.handle);
+  ' "$pty_id" 2>/dev/null)" || return 1
+  printf '%s' "$resolved_handle"
+}
+
+lookup_parent_terminal() {
+  local requested_handle="$1"
+  local pane_key="$2"
+  local target_worktree_id="$3"
+  local shown_json terminals_json worktree_selector
+  if shown_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal show --terminal "$requested_handle" --json 2>/dev/null)"; then
+    printf '%s' "$shown_json"
+    return 0
+  fi
+
+  worktree_selector="active"
+  if [[ -n "$target_worktree_id" ]]; then worktree_selector="id:$target_worktree_id"; fi
+  terminals_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal list --worktree "$worktree_selector" --json 2>/dev/null)" || return 1
+  printf '%s' "$terminals_json" | node -e '
+    const fs = require("node:fs");
+    const requestedHandle = process.argv[1];
+    const paneKey = process.argv[2];
+    const leafId = paneKey.includes(":") ? paneKey.slice(paneKey.lastIndexOf(":") + 1) : "";
+    const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+    const result = payload?.result ?? payload;
+    const terminals = Array.isArray(result?.terminals) ? result.terminals : [];
+    const terminal = terminals.find((candidate) => candidate?.handle === requestedHandle)
+      ?? terminals.find((candidate) => leafId && candidate?.leafId === leafId);
+    if (!terminal) process.exit(1);
+    process.stdout.write(JSON.stringify({ result: { terminal } }));
+  ' "$requested_handle" "$pane_key" 2>/dev/null
+}
+
+wait_for_terminal_absence() {
+  local attempt lookup_status
+  if [[ -z "$terminal_pty_id" || -z "$terminal_worktree_id" ]]; then return 2; fi
+  for ((attempt = 0; attempt < 10; attempt++)); do
+    lookup_terminal_handle "$terminal_pty_id" "$terminal_worktree_id" >/dev/null
+    lookup_status="$?"
+    if [[ "$lookup_status" == 1 ]]; then return 0; fi
+    if [[ "$lookup_status" == 2 ]]; then return 2; fi
+    sleep 0.1
+  done
+  return 1
+}
+
+write_viewer_manifest() {
+  local destination="$1"
+  shift
+  if [[ -z "$log_dir" || "$destination" != "$log_dir/viewer-manifest.json" ]]; then
+    return 1
+  fi
+
+  {
+    if (( "$#" > 0 )); then printf '%s\0' "$@"; fi
+  } | node "$manifest_writer" "$destination" >/dev/null 2>&1
+}
+
+persist_terminal_record() {
+  if [[ -z "$log_dir" ]]; then return 0; fi
+  node - "$log_dir/viewer.json" \
+    "$terminal_created_handle" "$terminal_handle" "$terminal_pty_id" \
+    "$terminal_tab_id" "$terminal_leaf_id" "$terminal_worktree_id" \
+    "$terminal_pane_runtime_id" "$parent_handle" "$parent_pty_id" \
+    "$parent_tab_id" "$parent_leaf_id" "$worktree_id" \
+    "$terminal_title" "$view_layout" "$layout_batch" \
+    "${PI_SUBAGENT_CHILD_AGENT:-}" "${PI_SUBAGENT_CHILD_INDEX:-}" \
+    "$close_whole_tab" <<'NODE' >/dev/null 2>&1 || true
+const fs = require("node:fs");
+const [
+  path, createdHandle, handle, ptyId, tabId, leafId, terminalWorktreeId,
+  paneRuntimeId, parentHandle, parentPtyId, parentTabId, parentLeafId,
+  parentWorktreeId, title, layout, batch, agent, childIndex, closeWholeTab,
+] = process.argv.slice(2);
+const numberOrNull = paneRuntimeId === "" ? null : Number(paneRuntimeId);
+fs.writeFileSync(path, `${JSON.stringify({
+  version: 1,
+  capturedAt: new Date().toISOString(),
+  child: { agent: agent || null, index: childIndex === "" ? null : Number(childIndex) },
+  viewer: {
+    title,
+    layout,
+    batch: batch || null,
+    closeMode: closeWholeTab === "true" ? "tab" : "pane",
+  },
+  terminal: {
+    createdHandle,
+    handle,
+    ptyId: ptyId || null,
+    tabId: tabId || null,
+    leafId: leafId || null,
+    worktreeId: terminalWorktreeId || null,
+    paneRuntimeId: Number.isFinite(numberOrNull) ? numberOrNull : null,
+  },
+  parent: {
+    handle: parentHandle || null,
+    ptyId: parentPtyId || null,
+    tabId: parentTabId || null,
+    leafId: parentLeafId || null,
+    worktreeId: parentWorktreeId || null,
+  },
+}, null, 2)}\n`, "utf8");
+NODE
+}
+
+capture_terminal_metadata() {
+  local requested_handle="$1"
+  local metadata_json resolved_handle
+  if [[ -z "$terminal_created_handle" ]]; then terminal_created_handle="$requested_handle"; fi
+  if ! metadata_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal show --terminal "$requested_handle" --json 2>/dev/null)"; then
+    terminal_handle="$requested_handle"
+    terminal_worktree_id="$worktree_id"
+    persist_terminal_record
+    return 1
+  fi
+  resolved_handle="$(printf '%s' "$metadata_json" | json_field terminal.handle 2>/dev/null)" || resolved_handle="$requested_handle"
+  terminal_handle="$resolved_handle"
+  terminal_pty_id="$(printf '%s' "$metadata_json" | json_field terminal.ptyId 2>/dev/null)" || terminal_pty_id=""
+  terminal_tab_id="$(printf '%s' "$metadata_json" | json_field terminal.tabId 2>/dev/null)" || terminal_tab_id=""
+  terminal_leaf_id="$(printf '%s' "$metadata_json" | json_field terminal.leafId 2>/dev/null)" || terminal_leaf_id=""
+  terminal_worktree_id="$(printf '%s' "$metadata_json" | json_field terminal.worktreeId 2>/dev/null)" || terminal_worktree_id="$worktree_id"
+  terminal_pane_runtime_id="$(printf '%s' "$metadata_json" | json_field terminal.paneRuntimeId 2>/dev/null)" || terminal_pane_runtime_id=""
+  if [[ -n "$log_dir" ]]; then
+    printf '%s\n' "$metadata_json" > "$log_dir/orca-terminal.json" 2>/dev/null || true
+  fi
+  persist_terminal_record
+}
+
+detect_nonfocus_split_flag() {
+  local split_help
+  split_help="$(PI_ORCA_COMMAND_TIMEOUT_MS=2000 run_orca terminal split --help 2>/dev/null)" || return 1
+  if [[ "$split_help" == *"--no-focus"* ]]; then
+    nonfocus_split_flag="--no-focus"
+    return 0
+  fi
+  if [[ "$split_help" == *"--background"* ]]; then
+    nonfocus_split_flag="--background"
+    return 0
+  fi
+  return 1
+}
+
+subagent_title() {
+  node "$title_renderer" "${PI_SUBAGENT_CHILD_AGENT:-}" "${PI_SUBAGENT_CHILD_INDEX:-}"
+}
+
+if [[ -z "$real_pi" ]]; then
+  real_pi="$(command -v pi || true)"
+fi
+[[ -n "$real_pi" ]] || fail "Pi CLI not found; set PI_ORCA_REAL_PI_BINARY" 127
+[[ -n "${ORCA_TERMINAL_HANDLE:-}" ]] || pass_through "$@"
+view_layout="${PI_ORCA_SUBAGENT_VIEW_LAYOUT:-background_tabs}"
+layout_batch="${PI_ORCA_SUBAGENT_VIEW_BATCH:-}"
+unset PI_ORCA_SUBAGENT_VIEW_LAYOUT PI_ORCA_SUBAGENT_VIEW_BATCH
+[[ "$view_layout" != "hidden" ]] || pass_through "$@"
+command -v "$orca_command" >/dev/null 2>&1 || pass_through "$@"
+command -v node >/dev/null 2>&1 || pass_through "$@"
+command -v mkfifo >/dev/null 2>&1 || pass_through "$@"
+[[ -r "$renderer" ]] || pass_through "$@"
+[[ -r "$title_renderer" ]] || pass_through "$@"
+[[ -r "$stream_relay" ]] || pass_through "$@"
+[[ -r "$manifest_writer" ]] || pass_through "$@"
+
+status_json="$(run_orca status --json 2>/dev/null)" || pass_through "$@"
+runtime_state="$(printf '%s' "$status_json" | json_field runtime.state 2>/dev/null)" || pass_through "$@"
+[[ "$runtime_state" == "ready" ]] || pass_through "$@"
+
+parent_json="$(lookup_parent_terminal "$ORCA_TERMINAL_HANDLE" "${ORCA_PANE_KEY:-}" "${ORCA_WORKTREE_ID:-}")" || pass_through "$@"
+worktree_id="$(printf '%s' "$parent_json" | json_field terminal.worktreeId 2>/dev/null)" || pass_through "$@"
+parent_handle="$(printf '%s' "$parent_json" | json_field terminal.handle 2>/dev/null)" || parent_handle="$ORCA_TERMINAL_HANDLE"
+parent_pty_id="$(printf '%s' "$parent_json" | json_field terminal.ptyId 2>/dev/null)" || parent_pty_id=""
+parent_tab_id="$(printf '%s' "$parent_json" | json_field terminal.tabId 2>/dev/null)" || parent_tab_id=""
+parent_leaf_id="$(printf '%s' "$parent_json" | json_field terminal.leafId 2>/dev/null)" || parent_leaf_id=""
+
+temporary_parent="$(cd -- "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || pass_through "$@"
+[[ -n "$temporary_parent" && "$temporary_parent" != "/" ]] || pass_through "$@"
+log_dir="$(mktemp -d "$temporary_parent/pi-orca-subagent.XXXXXX" 2>/dev/null)" || pass_through "$@"
+if [[ ! -d "$log_dir" ]] || ! is_safe_log_dir "$log_dir" "$temporary_parent" 2>/dev/null; then
+  log_dir=""
+  pass_through "$@"
+fi
+stdout_log="$log_dir/stdout.log"
+stderr_log="$log_dir/stderr.log"
+done_file="$log_dir/done"
+touch "$stdout_log" "$stderr_log" 2>/dev/null || pass_through "$@"
+trap cleanup_visibility EXIT
+
+viewer_manifest="$log_dir/viewer-manifest.json"
+write_viewer_manifest "$viewer_manifest" "$@" || true
+
+terminal_title="$(subagent_title 2>/dev/null)" || terminal_title="-> subagent"
+printf -v quoted_stdout '%q' "$stdout_log"
+printf -v quoted_stderr '%q' "$stderr_log"
+printf -v quoted_done '%q' "$done_file"
+printf -v quoted_log_dir '%q' "$log_dir"
+printf -v quoted_temporary_parent '%q' "$temporary_parent"
+printf -v quoted_renderer '%q' "$renderer"
+printf -v quoted_agent '%q' "${PI_SUBAGENT_CHILD_AGENT:-subagent}"
+printf -v quoted_index '%q' "${PI_SUBAGENT_CHILD_INDEX:-}"
+printf -v quoted_viewer_manifest '%q' "$viewer_manifest"
+renderer_command="PI_SUBAGENT_CHILD_AGENT=$quoted_agent PI_SUBAGENT_CHILD_INDEX=$quoted_index node $quoted_renderer --stdout-log $quoted_stdout --stderr-log $quoted_stderr --done-file $quoted_done --manifest $quoted_viewer_manifest"
+viewer_cleanup_function="safe_remove_log_dir() { local candidate=\"\$1\" expected_parent=\"\$2\" basename candidate_parent resolved_parent resolved_candidate; [[ -n \"\$expected_parent\" && \"\$expected_parent\" != / ]] || return 1; resolved_parent=\"\$(cd -- \"\$expected_parent\" 2>/dev/null && pwd -P)\" || return 1; [[ \"\$resolved_parent\" == \"\$expected_parent\" ]] || return 1; [[ -n \"\$candidate\" && \"\$candidate\" != / && \"\$candidate\" != \"\$expected_parent\" ]] || return 1; basename=\"\${candidate##*/}\"; candidate_parent=\"\${candidate%/*}\"; [[ \"\$basename\" =~ ^pi-orca-subagent\\.[[:alnum:]]{6}\$ ]] || return 1; [[ \"\$candidate_parent\" == \"\$expected_parent\" ]] || return 1; [[ \"\$candidate\" == \"\$expected_parent/\$basename\" ]] || return 1; if [[ -e \"\$candidate\" || -L \"\$candidate\" ]]; then [[ -d \"\$candidate\" && ! -L \"\$candidate\" ]] || return 1; resolved_candidate=\"\$(cd -- \"\$candidate\" 2>/dev/null && pwd -P)\" || return 1; [[ \"\$resolved_candidate\" == \"\$candidate\" ]] || return 1; fi; rm -rf -- \"\$candidate\"; }"
+viewer_command="$viewer_cleanup_function; $renderer_command; viewer_status=\$?; safe_remove_log_dir $quoted_log_dir $quoted_temporary_parent || true; exit \$viewer_status"
+printf -v quoted_viewer_command '%q' "$viewer_command"
+viewer_start_command="bash --noprofile --norc -c $quoted_viewer_command"
+
+child_index="${PI_SUBAGENT_CHILD_INDEX:-}"
+
+if [[ "$view_layout" == "right_stack" && "$layout_batch" =~ ^[a-zA-Z0-9._-]+$ && "$child_index" =~ ^[01]$ ]] && detect_nonfocus_split_flag; then
+  layout_state_dir="${TMPDIR:-/tmp}/pi-orca-subagent-layout.$layout_batch"
+  mkdir -p "$layout_state_dir" 2>/dev/null || layout_state_dir=""
+fi
+
+if [[ -n "$layout_state_dir" && "$child_index" == "0" ]]; then
+  split_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=5000 run_orca terminal split --terminal "$parent_handle" --direction vertical --command "$viewer_start_command" "$nonfocus_split_flag" --json 2>/dev/null)" || split_json=""
+  terminal_handle="$(printf '%s' "$split_json" | json_field split.handle 2>/dev/null)" || terminal_handle="$(printf '%s' "$split_json" | json_field terminal.handle 2>/dev/null)" || terminal_handle=""
+  if [[ -n "$terminal_handle" ]]; then
+    close_whole_tab=false
+    capture_terminal_metadata "$terminal_handle" || true
+    anchor_tmp="$layout_state_dir/anchor.tmp.$$"
+    if mkdir "$anchor_tmp" 2>/dev/null; then
+      printf '%s' "$terminal_handle" > "$anchor_tmp/handle" 2>/dev/null || true
+      printf '%s' "$terminal_pty_id" > "$anchor_tmp/pty-id" 2>/dev/null || true
+      mv "$anchor_tmp" "$layout_state_dir/anchor" 2>/dev/null || rm -rf "$anchor_tmp"
+    fi
+    (
+      for ((attempt = 0; attempt < 50; attempt++)); do
+        [[ -e "$layout_state_dir/consumed" ]] && break
+        sleep 0.1
+      done
+      rm -rf "$layout_state_dir"
+    ) </dev/null >/dev/null 2>&1 &
+  fi
+elif [[ -n "$layout_state_dir" && "$child_index" == "1" ]]; then
+  for ((attempt = 0; attempt < 50; attempt++)); do
+    [[ -s "$layout_state_dir/anchor/handle" ]] && break
+    sleep 0.1
+  done
+  anchor_handle="$(cat "$layout_state_dir/anchor/handle" 2>/dev/null)" || anchor_handle=""
+  anchor_pty_id="$(cat "$layout_state_dir/anchor/pty-id" 2>/dev/null)" || anchor_pty_id=""
+  if [[ -n "$anchor_pty_id" ]]; then
+    resolved_anchor_handle="$(lookup_terminal_handle "$anchor_pty_id" "$worktree_id")"
+    anchor_lookup_status="$?"
+    if [[ "$anchor_lookup_status" == 0 ]]; then
+      anchor_handle="$resolved_anchor_handle"
+    elif [[ "$anchor_lookup_status" == 1 ]]; then
+      anchor_handle=""
+    fi
+  fi
+  if [[ -n "$anchor_handle" ]]; then
+    split_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=5000 run_orca terminal split --terminal "$anchor_handle" --direction horizontal --command "$viewer_start_command" "$nonfocus_split_flag" --json 2>/dev/null)" || split_json=""
+    terminal_handle="$(printf '%s' "$split_json" | json_field split.handle 2>/dev/null)" || terminal_handle="$(printf '%s' "$split_json" | json_field terminal.handle 2>/dev/null)" || terminal_handle=""
+    if [[ -n "$terminal_handle" ]]; then
+      close_whole_tab=false
+      capture_terminal_metadata "$terminal_handle" || true
+      touch "$layout_state_dir/consumed" 2>/dev/null || true
+    fi
+  fi
+fi
+
+if [[ -z "$terminal_handle" ]]; then
+  if [[ -n "$layout_state_dir" ]]; then rm -rf "$layout_state_dir"; fi
+  create_json="$(PI_ORCA_COMMAND_TIMEOUT_MS=5000 run_orca terminal create --worktree "id:$worktree_id" --title "$terminal_title" --command "$viewer_start_command" --json 2>/dev/null)" || pass_through "$@"
+  terminal_handle="$(printf '%s' "$create_json" | json_field terminal.handle 2>/dev/null)" || pass_through "$@"
+  close_whole_tab=true
+  capture_terminal_metadata "$terminal_handle" || true
+fi
+
+stdout_pipe="$log_dir/stdout.pipe"
+stderr_pipe="$log_dir/stderr.pipe"
+mkfifo "$stdout_pipe" "$stderr_pipe" 2>/dev/null || pass_through "$@"
+capture_limit="${PI_ORCA_CAPTURE_LIMIT_BYTES:-8388608}"
+[[ "$capture_limit" =~ ^[1-9][0-9]*$ ]] || capture_limit=8388608
+
+node "$stream_relay" "$stdout_log" "$capture_limit" < "$stdout_pipe" &
+stdout_tee_pid="$!"
+node "$stream_relay" "$stderr_log" "$capture_limit" < "$stderr_pipe" >&2 &
+stderr_tee_pid="$!"
+
+(
+  trap '' HUP INT TERM
+  while kill -0 "$stdout_tee_pid" 2>/dev/null || kill -0 "$stderr_tee_pid" 2>/dev/null; do sleep 0.05; done
+  touch "$done_file"
+  sleep 0.2
+  if close_visibility; then
+    safe_remove_log_dir "$log_dir" "$temporary_parent" || true
+  fi
+) </dev/null >/dev/null 2>&1 &
+
+trap - EXIT
+exec "$real_pi" "$@" > "$stdout_pipe" 2> "$stderr_pipe"
+
+exit_code="$?"
+kill "$stdout_tee_pid" "$stderr_tee_pid" 2>/dev/null || true
+cleanup_visibility
+exit "$exit_code"

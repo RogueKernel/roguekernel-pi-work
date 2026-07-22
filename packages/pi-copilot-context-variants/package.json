@@ -1,0 +1,47 @@
+{
+  "name": "pi-copilot-context-variants",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Keep Pi's GitHub Copilot model limits, pricing, and context variants in sync with Copilot's live model catalog.",
+  "author": {
+    "name": "RogueKernel",
+    "url": "https://github.com/RogueKernel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RogueKernel/roguekernel-pi-work.git",
+    "directory": "packages/pi-copilot-context-variants"
+  },
+  "homepage": "https://github.com/RogueKernel/roguekernel-pi-work/tree/main/packages/pi-copilot-context-variants",
+  "bugs": {
+    "url": "https://github.com/RogueKernel/roguekernel-pi-work/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "github-copilot",
+    "context-window"
+  ],
+  "license": "MIT",
+  "files": [
+    "src",
+    "docs",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.81.0"
+  },
+  "scripts": {
+    "check": "node --check src/*.js && npm test",
+    "test": "node --test test/*.test.js"
+  },
+  "pi": {
+    "extensions": ["./src/pi-copilot-context-variants.js"]
+  }
+}

@@ -1,0 +1,20 @@
+# Dependencies and build output
+node_modules/
+coverage/
+dist/
+
+# Local Pi and agent state
+.pi/
+.pi-subagents/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+
+# Logs and local environment files
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
