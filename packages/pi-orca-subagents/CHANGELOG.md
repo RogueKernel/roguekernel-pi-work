@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## Unreleased
+## 0.1.0 - 2026-07-22
 
 - Shows concise tool intent in compact and readable headers, including
   GREP/FIND pattern and path, READ ranges, browser commands and jobs, and
@@ -42,8 +42,6 @@ All notable changes to this project will be documented here.
   streams.
 - Starts each log viewer in an explicit Bash shell so worktree default terminal
   commands (such as another Pi TUI) cannot replace the viewer.
-
-## 0.1.0
 
 - Initial thin adapter using the public `PI_SUBAGENT_PI_BINARY` seam.
 - Adds visible Orca log terminals without replacing `pi-subagents` profiles,
