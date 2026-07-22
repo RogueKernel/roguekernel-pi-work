@@ -226,6 +226,23 @@ describe("viewer model safety", () => {
     });
   });
 
+  it("ignores empty protocol lines and session-maintenance events", () => {
+    const model = new ViewerModel({ now: () => 1_000 });
+    model.ingestLine("");
+    model.ingestLine("  \t");
+    model.ingestLine("\u001b[0m");
+    model.ingestEvent({
+      type: "entry_appended",
+      entry: { type: "custom", customType: "plannotator" },
+    });
+    model.ingestEvent({
+      type: "session_info_changed",
+      name: "subagent-researcher-run-1",
+    });
+
+    assert.deepEqual(model.snapshot().items, []);
+  });
+
   it("sanitizes caller-provided sources before routing or retention", () => {
     const model = new ViewerModel({ now: () => 1_000 });
     model.ingestLine("stderr text", {

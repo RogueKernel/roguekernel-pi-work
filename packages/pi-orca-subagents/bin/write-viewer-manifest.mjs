@@ -99,6 +99,32 @@ function validSource(source) {
     !/[\u0000-\u001f\u007f-\u009f]/u.test(source);
 }
 
+function setPrompt(kind, title, text, source) {
+  if (typeof text !== "string" || text.length === 0 || !validSource(source)) {
+    return;
+  }
+  const prompt = { kind, title, text, source, provenance: "exact" };
+  manifest.prompts = manifest.prompts.filter((value) => value.kind !== kind);
+  manifest.prompts.push(prompt);
+}
+
+function setTask(text, source) {
+  if (typeof text !== "string" || text.length === 0 || !validSource(source)) {
+    return;
+  }
+  const task = { text, source, provenance: "exact" };
+  manifest.launch.task = task;
+  setPrompt("task", "Task", text, source);
+}
+
+function setModel(value) {
+  if (typeof value !== "string" || !validSource(value)) return;
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator === value.length - 1) return;
+  manifest.runtime.provider = value.slice(0, separator);
+  manifest.runtime.model = value.slice(separator + 1);
+}
+
 function copyTask(value) {
   if (!isRecord(value) || typeof value.text !== "string" ||
       !validSource(value.source) || !provenance.has(value.provenance)) {
@@ -167,24 +193,70 @@ if (/^\d+$/.test(childIndex ?? "")) {
 }
 
 let promptFile;
+let modelArgument;
+let systemPromptArgument;
 for (let index = 0; index < args.length; index += 1) {
   if (args[index] === "--prompt-file") {
     promptFile = args[index + 1];
     index += 1;
   } else if (args[index].startsWith("--prompt-file=")) {
     promptFile = args[index].slice("--prompt-file=".length);
+  } else if (args[index] === "--model") {
+    modelArgument = args[index + 1];
+    index += 1;
+  } else if (args[index].startsWith("--model=")) {
+    modelArgument = args[index].slice("--model=".length);
+  } else if (args[index] === "--system-prompt") {
+    systemPromptArgument = { mode: "replace", path: args[index + 1] };
+    index += 1;
+  } else if (args[index].startsWith("--system-prompt=")) {
+    systemPromptArgument = {
+      mode: "replace",
+      path: args[index].slice("--system-prompt=".length),
+    };
+  } else if (args[index] === "--append-system-prompt") {
+    systemPromptArgument = { mode: "append", path: args[index + 1] };
+    index += 1;
+  } else if (args[index].startsWith("--append-system-prompt=")) {
+    systemPromptArgument = {
+      mode: "append",
+      path: args[index].slice("--append-system-prompt=".length),
+    };
   }
+}
+setModel(modelArgument);
+
+if (systemPromptArgument) {
+  try {
+    const text = readBoundedUtf8(systemPromptArgument.path, PROMPT_LIMIT);
+    manifest.launch.promptMode = systemPromptArgument.mode;
+    if (systemPromptArgument.mode === "replace") {
+      setPrompt("system", "System prompt", text, "Pi system-prompt file");
+    } else {
+      setPrompt(
+        "agent-template",
+        "Agent prompt",
+        text,
+        "Pi append-system-prompt file",
+      );
+    }
+  } catch {}
+}
+
+const positionalPrompt = args.at(-1);
+if (typeof positionalPrompt === "string" && positionalPrompt.startsWith("Task: ")) {
+  setTask(positionalPrompt.slice("Task: ".length), "Pi positional prompt");
+} else if (typeof positionalPrompt === "string" && positionalPrompt.startsWith("@")) {
+  try {
+    const text = readBoundedUtf8(positionalPrompt.slice(1), PROMPT_LIMIT);
+    if (text.startsWith("Task: ")) {
+      setTask(text.slice("Task: ".length), "Pi @ prompt file");
+    }
+  } catch {}
 }
 if (promptFile) {
   try {
-    const task = {
-      text: readBoundedUtf8(promptFile, PROMPT_LIMIT),
-      source: "prompt file",
-      provenance: "exact",
-    };
-    manifest.launch.task = task;
-    manifest.prompts = manifest.prompts.filter(({ kind }) => kind !== "task");
-    manifest.prompts.push({ kind: "task", title: "Task", ...task });
+    setTask(readBoundedUtf8(promptFile, PROMPT_LIMIT), "prompt file");
   } catch {}
 }
 

@@ -57,6 +57,7 @@ const EVENT_ACCENTS = Object.freeze({
   bash: "orange",
   edit: "rose",
   write: "coral",
+  tool: "blue",
   extension: "yellow",
   success: "green",
   failed: "red",
@@ -76,6 +77,13 @@ function accentName(kind) {
   const normalized = normalizedKind(kind);
   if (Object.hasOwn(EVENT_ACCENTS, normalized))
     return EVENT_ACCENTS[normalized];
+  if (normalized.startsWith("tool:")) {
+    const tool = normalized.slice("tool:".length);
+    if (Object.hasOwn(EVENT_ACCENTS, tool)) return EVENT_ACCENTS[tool];
+    if (tool.includes("search")) return "magenta";
+    if (tool.includes("browser")) return "cyan";
+    return EVENT_ACCENTS.tool;
+  }
   if (normalized.startsWith("extension")) return "yellow";
   return "slate";
 }

@@ -19,6 +19,11 @@ export {
   VERBOSITY_LEVELS,
 } from "./viewer-materialize.mjs";
 
+const ignoredEventTypes = new Set([
+  "entry_appended",
+  "session_info_changed",
+]);
+
 function normalizeSource(value) {
   const source = sanitizeText(value);
   return source || "stdout";
@@ -197,6 +202,7 @@ export class ViewerModel {
   }
 
   ingestLine(line, { source = "stdout", receivedAt = this.now() } = {}) {
+    if (!sanitizeText(line).trim()) return;
     const normalizedSource = normalizeSource(source);
     if (normalizedSource === "stderr") {
       this.#append(
@@ -241,7 +247,9 @@ export class ViewerModel {
     }
 
     const type = sanitizeText(event.type || "unknown").toLowerCase();
-    if (type === "session") {
+    if (ignoredEventTypes.has(type)) {
+      return;
+    } else if (type === "session") {
       this.#reduceSession(event, receivedAt);
     } else if (lifecycleLabels.has(type)) {
       this.#reduceLifecycle(type, event, receivedAt);

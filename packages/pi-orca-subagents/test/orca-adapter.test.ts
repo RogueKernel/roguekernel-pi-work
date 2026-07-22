@@ -568,6 +568,54 @@ exit 7
 		assert.doesNotMatch(serializedManifest, /"(?:rawA|a)rgv"/i);
 	});
 
+	it("captures pi-subagents positional task and model metadata", async () => {
+		const root = tempDir();
+		const agentPrompt = join(root, "researcher.md");
+		writeFileSync(agentPrompt, "Research with primary sources", "utf8");
+		const { manifest, mode } = await captureViewerManifest({
+			args: [
+				"--mode",
+				"json",
+				"-p",
+				"--append-system-prompt",
+				agentPrompt,
+				"--model",
+				"openai-codex/gpt-5.6-sol:medium",
+				"Task: Research current UK cat food brands",
+			],
+		});
+
+		assert.deepEqual(manifest.launch, {
+			promptMode: "append",
+			task: {
+				text: "Research current UK cat food brands",
+				source: "Pi positional prompt",
+				provenance: "exact",
+			},
+		});
+		assert.deepEqual(manifest.prompts, [
+			{
+				kind: "agent-template",
+				title: "Agent prompt",
+				text: "Research with primary sources",
+				source: "Pi append-system-prompt file",
+				provenance: "exact",
+			},
+			{
+				kind: "task",
+				title: "Task",
+				text: "Research current UK cat food brands",
+				source: "Pi positional prompt",
+				provenance: "exact",
+			},
+		]);
+		assert.deepEqual(manifest.runtime, {
+			provider: "openai-codex",
+			model: "gpt-5.6-sol:medium",
+		});
+		assert.equal(mode, 0o600);
+	});
+
 	it("rejects unsafe upstream manifest files without affecting the child", async () => {
 		const root = tempDir();
 		const validManifest = JSON.stringify({

@@ -673,6 +673,34 @@ describe("adaptive viewer rendering", () => {
     assert.doesNotMatch(output, /args:/);
   });
 
+  it("colors search and otherwise-unclassified tool headings", () => {
+    const theme = createTheme("dark");
+    const tool = (id: string, label: string) => ({
+      ...snapshotFixture.items[1],
+      id,
+      label,
+      payload: { args: { query: "cat food" }, result: "done" },
+    });
+    const output = renderViewerLines(
+      {
+        ...snapshotFixture,
+        prompts: [],
+        items: [
+          tool("search-1", "WEB_SEARCH"),
+          tool("custom-1", "CONTACT_SUPERVISOR"),
+        ],
+      },
+      { width: 120, level: 1, theme },
+    ).join("\n");
+
+    const search = theme.eventColor("tool:web_search");
+    const generic = theme.eventColor("tool:contact_supervisor");
+    assert.notEqual(search, theme.eventColor("unknown"));
+    assert.notEqual(generic, theme.eventColor("unknown"));
+    assert.ok(output.includes(`\u001b[38;2;${search}mWEB_SEARCH`));
+    assert.ok(output.includes(`\u001b[38;2;${generic}mCONTACT_SUPERVISOR`));
+  });
+
   it("omits routine turn markers and empty or duplicate stream placeholders", () => {
     const item = (id: string, kind: string, label: string, content = "") => ({
       id,

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here.
 
+## Unreleased
+
+- Captures pi-subagents' exact agent prompt, positional task, and model
+  arguments so launch context is visible from the start of each viewer.
+- Gives search, browser, and otherwise-unclassified tools semantic heading
+  colours instead of rendering them like unknown events.
+- Omits blank protocol records and routine session persistence events from the
+  visible timeline.
+
 ## 0.1.0 - 2026-07-22
 
 - Shows concise tool intent in compact and readable headers, including

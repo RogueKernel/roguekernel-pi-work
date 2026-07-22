@@ -284,7 +284,10 @@ function timelineDetail(item) {
 
 function timelineHeader(item, observedAt, theme) {
   const label = singleLine(item?.label || item?.kind, "UNKNOWN").toUpperCase();
-  const eventKind = label.toLowerCase();
+  const normalizedLabel = label.toLowerCase();
+  const eventKind = item?.kind === "tool"
+    ? `tool:${normalizedLabel}`
+    : normalizedLabel;
   const clock = formatClock(item?.startedAt);
   let endedAt = item?.endedAt ?? null;
   if (endedAt === null && item?.status === "active") endedAt = observedAt;

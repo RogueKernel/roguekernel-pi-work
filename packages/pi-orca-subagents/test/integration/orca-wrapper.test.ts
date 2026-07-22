@@ -174,7 +174,9 @@ printf '%s\\n' '{"type":"agent_settled"}'
 				join(directory, "started-1"),
 			]);
 			const added = liveTerminals().filter(
-				(terminal) => !before.has(terminal.ptyId),
+				(terminal) =>
+					!before.has(terminal.ptyId) &&
+					(terminal.title ?? "").startsWith(`-> ${agentName} · `),
 			);
 			assert.equal(
 				added.length,
