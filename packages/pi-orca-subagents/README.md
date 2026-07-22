@@ -4,11 +4,6 @@ A read-only live viewer for [`pi-subagents`](https://github.com/nicobailon/pi-su
 children inside Orca. Watch prompts, reasoning, tools, results, retries, usage,
 and completion without giving the viewer control of the child.
 
-![A real pi-orca-subagents reviewer child running in Orca](docs/viewer-screenshot.png)
-
-_Captured from a real read-only `pi-subagents` reviewer child. The image is
-cropped to the viewer surface; unrelated Orca workspace chrome is omitted._
-
 **Why use it?** Delegated work stays observable, your current terminal keeps
 focus, and `pi-subagents` remains the sole owner of execution.
 

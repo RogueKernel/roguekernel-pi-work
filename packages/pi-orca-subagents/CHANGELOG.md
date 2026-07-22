@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## Unreleased
+## 0.1.1 - 2026-07-22
 
 - Captures pi-subagents' exact agent prompt, positional task, and model
   arguments so launch context is visible from the start of each viewer.
@@ -10,6 +10,8 @@ All notable changes to this project will be documented here.
   colours instead of rendering them like unknown events.
 - Omits blank protocol records and routine session persistence events from the
   visible timeline.
+- Removes screenshot-based documentation so the README relies only on current,
+  verifiable behavior.
 
 ## 0.1.0 - 2026-07-22
 

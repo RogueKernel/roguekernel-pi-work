@@ -2,10 +2,8 @@
 
 Focused Pi extensions for **seeing delegated work clearly** and **keeping
 GitHub Copilot model metadata honest**. Each package is independently owned,
-tested, documented, and installable; the private workspace simply keeps their
+tested, documented, and installable; this source-only workspace keeps their
 development and release checks consistent.
-
-![Read-only Orca subagent viewer](packages/pi-orca-subagents/docs/viewer-preview.png)
 
 ## Packages
 
@@ -25,11 +23,15 @@ directories individually. The repository root is never added as a Pi package.
 
 ```bash
 install_root="${XDG_DATA_HOME:-$HOME/.local/share}/roguekernel-pi-work"
+pi install https://github.com/nicobailon/pi-subagents
 git clone https://github.com/RogueKernel/roguekernel-pi-work.git "$install_root"
 
 pi install "$install_root/packages/pi-orca-subagents"
 pi install "$install_root/packages/pi-copilot-context-variants"
 ```
+
+`pi-subagents` is required by `pi-orca-subagents`; the Copilot context extension
+does not depend on it.
 
 Because Pi records these as individual local package paths, update the shared
 clone explicitly and then reload Pi:

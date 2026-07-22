@@ -1,6 +1,6 @@
 {
   "name": "pi-orca-subagents",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Read-only live Orca viewers for pi-subagents children",
   "keywords": [
@@ -33,7 +33,6 @@
     "bin/subagent-title.mjs",
     "bin/write-viewer-manifest.mjs",
     "docs/*.md",
-    "docs/viewer-screenshot.png",
     "pi-extension/orca-adapter.ts",
     "src",
     "CHANGELOG.md",
