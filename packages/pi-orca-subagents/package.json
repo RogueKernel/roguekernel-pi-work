@@ -33,6 +33,7 @@
     "bin/subagent-title.mjs",
     "bin/write-viewer-manifest.mjs",
     "docs/*.md",
+    "docs/viewer-screenshot.png",
     "pi-extension/orca-adapter.ts",
     "src",
     "CHANGELOG.md",
