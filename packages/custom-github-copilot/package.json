@@ -1,0 +1,49 @@
+{
+  "name": "custom-github-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A PAT-only GitHub Copilot provider for Pi with opinionated pricing-threshold model variants.",
+  "author": {
+    "name": "RogueKernel",
+    "url": "https://github.com/RogueKernel"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RogueKernel/roguekernel-pi-work.git",
+    "directory": "packages/custom-github-copilot"
+  },
+  "homepage": "https://github.com/RogueKernel/roguekernel-pi-work/tree/main/packages/custom-github-copilot",
+  "bugs": {
+    "url": "https://github.com/RogueKernel/roguekernel-pi-work/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "github-copilot",
+    "personal-access-token",
+    "context-window"
+  ],
+  "license": "MIT",
+  "files": [
+    "src",
+    "docs",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*"
+  },
+  "scripts": {
+    "check": "node --check src/*.js && npm test",
+    "test": "node --test test/*.test.js"
+  },
+  "pi": {
+    "extensions": ["./src/custom-github-copilot.js"]
+  }
+}
